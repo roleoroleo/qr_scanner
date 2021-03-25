@@ -26,6 +26,7 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <getopt.h>
+#include <time.h>
 
 #ifdef HAVE_AV_CONFIG_H
 #undef HAVE_AV_CONFIG_H
@@ -49,6 +50,9 @@
 #define W_HIGH 1920
 #define H_HIGH 1080
 
+#define SCAN_INTERVAL_MS 50
+#define LED_CHANGE 1 // Change led on detect QRCODE
+
 typedef struct {
     int sps_addr;
     int sps_len;
@@ -58,7 +62,6 @@ typedef struct {
     int idr_len;
 } frame;
 
-int res;
 int debug;
 
 unsigned char *addr;
@@ -176,6 +179,18 @@ void usage(char *prog_name)
     fprintf(stderr, "\t-h, --help              Show this help\n");
 }
 
+void printTime()
+{
+	char tbuffer[26];
+	time_t timer;
+	struct tm* tm_info;
+
+	timer = time(NULL);
+	tm_info = localtime(&timer);
+	strftime(tbuffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
+	fprintf(stderr, "%s", tbuffer);
+}
+
 int main(int argc, char **argv)
 {
     FILE *fIdx, *fBuf;
@@ -185,16 +200,18 @@ int main(int argc, char **argv)
 
     struct quirc *qr;
     uint8_t *buf;
-    int width = W_HIGH;
-    int height = H_HIGH;
+
+    int res = RESOLUTION_LOW;
+    int width =  (res == RESOLUTION_HIGH ? W_HIGH : W_LOW);
+    int height = (res == RESOLUTION_HIGH ? H_HIGH : H_LOW);;
     int w, h;
     int i, count;
 
     int c;
     int err;
 
-    res = RESOLUTION_HIGH;
-    debug = 1;
+
+    debug = 0;
 
     while (1) {
         static struct option long_options[] = {
@@ -297,6 +314,11 @@ int main(int argc, char **argv)
         quirc_end(qr);
 
         count = quirc_count(qr);
+
+         fprintf(stderr, "Decoding qrcode , count: %d (res: %d) \n", count, res);
+
+        if(count <= 0 && LED_CHANGE) system("/home/yi-hack/bin/ipc_cmd -l OFF");
+
         for (i = 0; i < count; i++) {
             struct quirc_code code;
             struct quirc_data data;
@@ -305,8 +327,14 @@ int main(int argc, char **argv)
             err = quirc_decode(&code, &data);
             if (err)
                 printf("Decode failed: %s\n", quirc_strerror(err));
-            else
-                printf("Data: %s\n", data.payload);
+            else{
+
+				printTime();
+				fprintf(stderr, " - Data: %s\n", data.payload);
+				fprintf(stdout, "\a" ); // BEEP !!!
+
+				if(LED_CHANGE) system("/home/yi-hack/bin/ipc_cmd -l ON");
+            }
         }
 
         // Unmap file from memory
@@ -316,7 +344,7 @@ int main(int argc, char **argv)
             if (debug) fprintf(stderr, "Unmapping file %s, size %d, from %08x\n", BUFFER_FILE, BUF_SIZE, addr);
         }
 
-        sleep(5);
+        usleep(SCAN_INTERVAL_MS * 1000); //ms
     }
 
     quirc_destroy(qr);
